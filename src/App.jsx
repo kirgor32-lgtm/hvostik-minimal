@@ -296,10 +296,9 @@ function Hero({ nav }) {
             <Link to={kinds.dog.path} className="flex h-10 items-center justify-center rounded-[2px] border border-ink bg-white px-3 text-[14px] font-semibold hover:bg-gray-1 sm:h-[52px] sm:px-7 sm:text-base">Корм для собак</Link>
           </div>
         </div>
-        <div aria-hidden="true" className="contour pointer-events-none absolute right-6 top-8 hidden select-none text-[96px] md:block lg:text-[150px] xl:right-12 xl:top-10 xl:text-[210px]">−10%</div>
-        <div className="pointer-events-none col-start-2 row-span-2 row-start-2 mt-2 flex shrink-0 sm:hidden md:flex items-center justify-center sm:absolute sm:mt-0 sm:inset-x-0 sm:bottom-0 sm:top-0 sm:items-end sm:justify-end sm:pb-6 sm:pr-12 md:pr-10 lg:pr-[100px] xl:pr-[150px]">
-          <img src={img('myau-steril')} {...IMG} alt="Упаковка корма Хвостик.МЯУ для стерилизованных кошек" fetchPriority="high" className="relative z-10 h-auto w-[68px] drop-shadow-lg sm:w-[100px] xl:w-[150px]" />
-          <img src={img('gav-small')} {...IMG} alt="Упаковка корма Хвостик.ГАВ для собак мелких пород" fetchPriority="high" className="relative z-10 ml-2 h-auto w-[68px] drop-shadow-lg sm:ml-3 sm:w-[100px] xl:w-[150px]" />
+        <div className="pointer-events-none col-start-2 row-span-2 row-start-2 mt-2 flex shrink-0 sm:hidden md:flex items-center justify-center sm:absolute sm:mt-0 sm:inset-x-0 sm:bottom-0 sm:top-0 sm:items-end sm:justify-end sm:pb-6 sm:pr-12 md:pr-12">
+          <img src={img('myau-steril')} {...IMG} alt="Упаковка корма Хвостик.МЯУ для стерилизованных кошек" fetchPriority="high" className="relative z-10 h-auto w-[68px] drop-shadow-lg sm:w-[120px] xl:w-[190px]" />
+          <img src={img('gav-small')} {...IMG} alt="Упаковка корма Хвостик.ГАВ для собак мелких пород" fetchPriority="high" className="relative z-10 ml-2 h-auto w-[68px] drop-shadow-lg sm:ml-3 sm:w-[120px] xl:w-[190px]" />
                   </div>
       </div>
       <div className="no-scrollbar mt-3 grid grid-flow-col gap-3 overflow-x-auto md:grid-cols-4">
@@ -469,10 +468,10 @@ function Mission() {
           <Link to={pages.about.path} className="mt-6 inline-flex items-center gap-1 font-semibold text-red hover:text-ink">О бренде и производителе <ChevronRight className="size-4" /></Link>
         </div>
         <div className="flex min-h-[260px] items-center justify-center border-t border-ink md:border-l md:border-t-0">
-          <div className="grid grid-cols-2 gap-3 p-8 text-center">
+          <div className="grid w-full max-w-[420px] grid-cols-2 gap-3 p-5 text-center sm:p-8">
             {stats.map(([n, l]) => (
-              <div key={l} className="px-4 py-5">
-                <div className="contour text-[44px]">{n}</div>
+              <div key={l} className="stat min-w-0 px-2 py-5 [container-type:inline-size]">
+                <div className="contour whitespace-nowrap text-[min(21cqw,44px)]">{n}</div>
                 <div className="mt-2 text-sm lowercase text-txt-2">{l}</div>
               </div>
             ))}
