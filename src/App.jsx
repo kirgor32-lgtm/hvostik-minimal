@@ -406,7 +406,7 @@ function ProductCard({ p }) {
         <Link to={productPath(p)} className="flex h-full w-full items-center justify-center p-3 sm:p-4" tabIndex={-1} aria-hidden>
           <img src={img(p.id)} {...IMG} loading="lazy" alt={`${p.line} — ${p.short}, ${p.taste}`} className="h-full w-auto object-contain transition hover:scale-105" />
         </Link>
-        <span className="absolute left-2 top-2 rounded-[2px] bg-white/90 px-2 py-1 text-xs font-bold sm:left-3 sm:top-3">{p.kind === 'cat' ? 'Кошкам' : 'Собакам'}</span>
+        <span className={cn('absolute left-2 top-2 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-md sm:left-3 sm:top-3 sm:text-[13px]', p.kind === 'cat' ? 'bg-[#7b4fd6]' : 'bg-[#e8742a]')}>{p.kind === 'cat' ? '🐱 Кошкам' : '🐶 Собакам'}</span>
         <FavBtn faved={faved} onClick={() => st.toggleFav(p.id)} />
       </div>
       <div className="mt-3 flex flex-wrap items-baseline gap-x-2">
@@ -915,9 +915,9 @@ function Footer({ nav }) {
           <div className="mb-3 font-semibold">Поговорим про питомцев</div>
           <a href={contacts.phoneHref} className="whitespace-nowrap text-[15px] font-bold min-[380px]:text-lg sm:text-2xl">{contacts.phone}</a>
           <p className="mt-1 text-sm text-white/70">{contacts.hours}</p>
-          <div className="mt-4 flex gap-2">
-            <a href={contacts.telegram} target="_blank" rel="noopener nofollow" aria-label="Telegram" className="rounded-[2px] bg-white/10 p-2.5 hover:bg-white/20"><TgIcon className="size-6" /></a>
-            <a href={contacts.max} target="_blank" rel="noopener nofollow" aria-label="Max" className="rounded-[2px] bg-white/10 p-2.5 hover:bg-white/20"><MaxIcon className="size-6" /></a>
+          <div className="mt-4 flex gap-3">
+            <a href={contacts.telegram} target="_blank" rel="noopener nofollow" aria-label="Telegram" className="transition hover:scale-110 hover:opacity-90"><TgIcon className="size-11" /></a>
+            <a href={contacts.max} target="_blank" rel="noopener nofollow" aria-label="Max" className="transition hover:scale-110 hover:opacity-90"><MaxIcon className="size-11" /></a>
           </div>
         </div>
       </div>
