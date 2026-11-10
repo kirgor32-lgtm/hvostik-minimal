@@ -406,7 +406,7 @@ function ProductCard({ p }) {
         <Link to={productPath(p)} className="flex h-full w-full items-center justify-center p-3 sm:p-4" tabIndex={-1} aria-hidden>
           <img src={img(p.id)} {...IMG} loading="lazy" alt={`${p.line} — ${p.short}, ${p.taste}`} className="h-full w-auto object-contain transition hover:scale-105" />
         </Link>
-        <span className={cn('absolute left-2 top-2 rounded-full px-2.5 py-1 text-xs font-bold text-white shadow-md sm:left-3 sm:top-3 sm:text-[13px]', p.kind === 'cat' ? 'bg-[#7b4fd6]' : 'bg-[#e8742a]')}>{p.kind === 'cat' ? '🐱 Кошкам' : '🐶 Собакам'}</span>
+        <span className="absolute left-2 top-2 rounded-[2px] border border-ink bg-white/90 px-2 py-1 text-xs font-bold sm:left-3 sm:top-3">{p.kind === 'cat' ? 'Кошкам' : 'Собакам'}</span>
         <FavBtn faved={faved} onClick={() => st.toggleFav(p.id)} />
       </div>
       <div className="mt-3 flex flex-wrap items-baseline gap-x-2">
