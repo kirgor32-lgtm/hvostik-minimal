@@ -141,6 +141,7 @@ export async function saveAccount(phone, acc) {
     return
   }
   const all = read('hv-accounts', {})
-  all[digits(phone)] = acc
+  if (acc) all[digits(phone)] = acc
+  else delete all[digits(phone)] // null — номер отвязан от аккаунта (сменили телефон)
   write('hv-accounts', all)
 }

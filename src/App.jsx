@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment, lazy, Suspense } from 'react'
 const PickupPicker = lazy(() => import('./PickupPicker'))
 import {
-  Search, ShoppingBag, Heart, User, Menu, X, Minus, Plus, ChevronRight, Phone, Clock, LogOut, Package,
+  Search, ShoppingBag, Heart, User, Menu, X, Minus, Plus, ChevronRight, Phone, Clock, LogOut, Package, Pencil,
   Drumstick, Scale, HeartPulse, ShieldCheck, Factory, BadgeCheck, Check, Trash2, Loader2, Send, Truck, Sparkles, PawPrint, Cookie,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -1432,15 +1432,90 @@ function LinkedMessengers() {
   )
 }
 
+// Личные данные: имя, фамилия, дата рождения сохраняются сразу; новый номер — только после кода
+function EditProfile({ onClose }) {
+  const st = useStore()
+  const u = st.user
+  const [f, setF] = useState({ name: u.name || '', surname: u.surname || '', birth: u.birth || '', phone: u.phone, code: '' })
+  const [step, setStep] = useState('form') // form | code
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(null)
+  const started = useRef(Date.now() - 5000)
+  const today = new Date().toISOString().slice(0, 10)
+  const inp = 'h-12 rounded-[2px] bg-white text-[16px]'
+  const same = f.phone.replace(/\D/g, '') === u.phone.replace(/\D/g, '')
+  const finish = async (phone) => {
+    const acc = { name: f.name.trim(), surname: f.surname.trim(), birth: f.birth }
+    await saveAccount(phone, acc)
+    if (phone !== u.phone) await saveAccount(u.phone, null) // старый номер больше не ведёт в этот аккаунт
+    st.setUser({ ...u, ...acc, phone })
+    onClose(true)
+  }
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    if (step === 'code') {
+      if (f.code.length !== 4) return setErr('Введите 4 цифры')
+      setBusy(true)
+      const r = await checkCode(f.phone, f.code)
+      if (r.error) { setBusy(false); return setErr(r.error) }
+      await finish(f.phone)
+      return setBusy(false)
+    }
+    if (f.name.trim().length < 2) return setErr('Введите имя')
+    if (f.birth && (f.birth > today || f.birth < '1900-01-01')) return setErr('Проверьте дату рождения')
+    if (f.phone.replace(/\D/g, '').length !== 11) return setErr('Введите телефон полностью')
+    setBusy(true)
+    if (same) { await finish(u.phone); return setBusy(false) }
+    if (await findAccount(f.phone)) { setBusy(false); return setErr('Этот номер уже привязан к другому аккаунту') }
+    const r = await sendCode(f.phone, { startedAt: started.current })
+    setBusy(false)
+    if (r.error) return setErr(r.error)
+    setErr(''); setSent(r); setStep('code')
+  }
+  return (
+    <form onSubmit={submit} noValidate className="space-y-3 rounded-[2px] bg-gray-1 p-4">
+      <div className="flex items-center justify-between"><div className="font-bold">Личные данные</div><button type="button" onClick={() => onClose(false)} className="text-sm text-txt-2 underline hover:text-ink">Отмена</button></div>
+      {step === 'form' ? (
+        <>
+          <label className="block"><span className="mb-1 block text-xs text-txt-2">Имя</span><Input autoComplete="given-name" maxLength={60} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={inp} /></label>
+          <label className="block"><span className="mb-1 block text-xs text-txt-2">Фамилия (необязательно)</span><Input autoComplete="family-name" maxLength={60} value={f.surname} onChange={(e) => setF({ ...f, surname: e.target.value })} className={inp} /></label>
+          <label className="block"><span className="mb-1 block text-xs text-txt-2">Дата рождения</span><Input type="date" autoComplete="bday" min="1900-01-01" max={today} value={f.birth} onChange={(e) => setF({ ...f, birth: e.target.value })} className={inp} /></label>
+          <label className="block"><span className="mb-1 block text-xs text-txt-2">Телефон — для входа и смс о заказах</span><Input type="tel" autoComplete="tel" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: fmtPhone(e.target.value) })} className={inp} /></label>
+          {!same && <p className="text-xs text-txt-2">Новый номер подтвердим кодом.</p>}
+        </>
+      ) : (
+        <>
+          <p className="text-[15px]">Код отправлен {sent?.channel === 'sms' ? `по смс на ${f.phone}` : `в ${channelNames[sent?.channel]}`}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('form'); setErr('') }}>Изменить номер</button></p>
+          <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] bg-white text-center text-xl tracking-[.5em]" />
+          {sent?.demoCode && <p className="text-xs text-txt-2">Демо: сообщения пока не отправляются, ваш код — {sent.demoCode}</p>}
+        </>
+      )}
+      {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
+      <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 w-full text-base')}>{busy ? <Loader2 className="size-5 animate-spin" /> : step === 'code' ? 'Подтвердить номер' : !same ? 'Получить код' : 'Сохранить'}</Button>
+    </form>
+  )
+}
+
 function Profile({ nav }) {
   const st = useStore()
+  const [edit, setEdit] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const bday = st.user.birth ? new Date(st.user.birth + 'T00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3 rounded-[2px] bg-gray-1 p-4">
-        <span className="flex size-12 items-center justify-center rounded-full bg-violet-dark text-lg font-bold text-white">{st.user.name[0]?.toUpperCase()}</span>
-        <div className="min-w-0 flex-1"><div className="font-bold">{[st.user.name, st.user.surname].filter(Boolean).join(' ')}</div><div className="whitespace-nowrap text-sm text-txt-2">{st.user.phone}</div></div>
-        <button onClick={() => st.setUser(null)} className="flex items-center gap-1 text-sm text-txt-2 hover:text-ink"><LogOut className="size-4" />Выйти</button>
-      </div>
+      {edit ? <EditProfile onClose={(ok) => { setEdit(false); setSaved(ok === true) }} /> : (
+        <div className="rounded-[2px] bg-gray-1 p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-violet-dark text-lg font-bold text-white">{st.user.name[0]?.toUpperCase()}</span>
+            <div className="min-w-0 flex-1"><div className="font-bold">{[st.user.name, st.user.surname].filter(Boolean).join(' ')}</div><div className="whitespace-nowrap text-sm text-txt-2">{st.user.phone}</div>{bday && <div className="text-sm text-txt-2">{bday}</div>}</div>
+            <button onClick={() => st.setUser(null)} className="flex items-center gap-1 self-start text-sm text-txt-2 hover:text-ink"><LogOut className="size-4" />Выйти</button>
+          </div>
+          <button onClick={() => { setEdit(true); setSaved(false) }} className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-violet-dark hover:underline"><Pencil className="size-3.5" />Изменить личные данные</button>
+          {saved && <p className="mt-1 text-xs text-txt-2">Изменения сохранены</p>}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <button onClick={() => st.setPanel('fav')} className="rounded-[2px] border border-gray-2 p-4 text-left hover:bg-gray-1"><Heart className="mb-2 size-5" /><div className="font-semibold">Избранное</div><div className="text-sm text-txt-2">{st.fav.length} шт.</div></button>
         <button onClick={() => st.setPanel('cart')} className="rounded-[2px] border border-gray-2 p-4 text-left hover:bg-gray-1"><ShoppingBag className="mb-2 size-5" /><div className="font-semibold">Корзина</div><div className="text-sm text-txt-2">{st.count} шт.</div></button>
