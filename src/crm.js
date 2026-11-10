@@ -89,3 +89,13 @@ export function sendLead(l) {
   const topic = contactTopics.find((t) => t.id === l.topic)?.label || l.topic || '' // в CRM — «Подобрать корм», а не «pick»
   sendOrQueue('lead', { name: l.name, phone: l.phone, topic, msg: l.msg || '' })
 }
+
+// Статус заказа для «Мои заказы» в личном кабинете — подтягивается из CRM,
+// меняется автоматически, когда менеджер двигает карточку заказа по этапам
+// в канбане CRM. null — CRM не подключена/недоступна (бейдж останется как был).
+export async function fetchOrderStatus(number, phone) {
+  if (!crmEnabled) return null
+  const crm = await load()
+  if (!crm?.orderStatus) return null
+  try { return await crm.orderStatus(number, phone) } catch { return null }
+}

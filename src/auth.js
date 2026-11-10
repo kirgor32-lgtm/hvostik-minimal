@@ -16,6 +16,24 @@
 // Важно: проверки в браузере — первый барьер, обойти их можно. Настоящие лимиты
 // и проверка капчи обязательно должны дублироваться на сервере.
 
+import { crmConfig, crmEnabled } from './crm'
+
+/* ---- связь с CRM: если она доступна, коды шлёт она (бот Telegram/Max или смс) ---- */
+const AUTH = crmEnabled ? crmConfig.api.replace(/\/$/, '') + '/api/public/auth/' : ''
+let live = null // null — ещё не проверяли; false — CRM недоступна, работает демо
+async function post(path, body) {
+  const r = await fetch(AUTH + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: crmConfig.key, ...body }) })
+  return { ok: r.ok, body: await r.json().catch(() => ({})) }
+}
+export async function authLive() {
+  if (!AUTH) return false
+  if (live === null) live = await post('me', {}).then(() => true, () => false)
+  return live
+}
+export const authLiveNow = () => live === true
+const getSession = () => read('hv-session', null)
+let lastCheck = null // { phone, account } — ответ CRM после верного кода
+
 export const authConfig = {
   api: '', // адрес сервера, например 'https://api.hvostik.ru'; пусто — демо-режим
   smartCaptchaKey: '', // ключ клиента Яндекс SmartCaptcha; пусто — капча не загружается
@@ -90,6 +108,14 @@ async function captchaToken() {
 export async function sendCode(phone, { trap = '', startedAt = 0, via = '', demoLinked = null } = {}) {
   if (trap) return { error: 'Не удалось отправить код. Попробуйте ещё раз.' }
   if (Date.now() - startedAt < authConfig.minFillMs) return { error: 'Слишком быстро. Проверьте данные и нажмите ещё раз.' }
+  if (await authLive()) {
+    // лимиты и выбор канала — на стороне CRM
+    try {
+      const captcha = await captchaToken()
+      const r = await post('send-code', { phone: digits(phone), via, captcha })
+      return r.ok ? r.body : { error: r.body.error || 'Не удалось отправить код', resendIn: r.body.resendIn }
+    } catch { live = false } // CRM пропала — дальше демо
+  }
   const { all, l } = limits(phone)
   const now = Date.now()
   if (l.lockUntil > now) return { error: `Слишком много попыток. Попробуйте через ${Math.ceil((l.lockUntil - now) / 60000)} мин.` }
@@ -97,33 +123,29 @@ export async function sendCode(phone, { trap = '', startedAt = 0, via = '', demo
   const last = l.sends.at(-1)
   if (last && now - last < authConfig.resendSeconds * 1000) return { error: 'Код уже отправлен, подождите немного.', resendIn: Math.ceil((authConfig.resendSeconds * 1000 - (now - last)) / 1000) }
   if (l.sends.length >= authConfig.maxSendsPerHour) return { error: 'Код можно запросить не больше 3 раз в час. Попробуйте позже.' }
-
-  const captcha = await captchaToken()
-  let res
-  if (authConfig.api) {
-    const r = await fetch(`${authConfig.api}/api/auth/send-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), captcha, via }) })
-    res = await r.json()
-    if (!r.ok) return { error: res.error || 'Не удалось отправить код' }
-  } else {
-    // демо: код генерируется в браузере и показывается на экране
-    const code = String(Math.floor(1000 + Math.random() * 9000))
-    sessionStorage.setItem('hv-demo-code', code)
-    res = { channel: via === 'sms' ? 'sms' : pickChannel(demoLinked ?? linkedChannels(phone)), resendIn: authConfig.resendSeconds, demoCode: code }
-  }
+  // демо: код генерируется в браузере и показывается на экране
+  const code = String(Math.floor(1000 + Math.random() * 9000))
+  sessionStorage.setItem('hv-demo-code', code)
   l.sends.push(now)
   save(phone, all, l)
-  return res
+  return { channel: via === 'sms' ? 'sms' : pickChannel(demoLinked ?? linkedChannels(phone)), resendIn: authConfig.resendSeconds, demoCode: code }
 }
 
 /* ---- проверка кода ---- */
-export async function checkCode(phone, code) {
+// move — покупатель меняет номер в личных данных: CRM перенесёт аккаунт на новый номер
+export async function checkCode(phone, code, { move = false } = {}) {
+  if (authLiveNow()) {
+    try {
+      const r = await post('check-code', { phone: digits(phone), code, move, token: getSession()?.token })
+      if (!r.ok) return { error: r.body.error || 'Неверный код' }
+      write('hv-session', { token: r.body.token, phone: digits(phone) })
+      lastCheck = { phone: digits(phone), account: r.body.account }
+      return { ok: true }
+    } catch { return { error: 'Нет связи с сервером. Попробуйте ещё раз.' } }
+  }
   const { all, l } = limits(phone)
   if (l.lockUntil > Date.now()) return { error: 'Вход временно заблокирован. Попробуйте позже.' }
-  let ok
-  if (authConfig.api) {
-    const r = await fetch(`${authConfig.api}/api/auth/check-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), code }) })
-    ok = r.ok
-  } else ok = code === sessionStorage.getItem('hv-demo-code')
+  const ok = code === sessionStorage.getItem('hv-demo-code')
   if (ok) { l.wrong = 0; save(phone, all, l); sessionStorage.removeItem('hv-demo-code'); return { ok: true } }
   l.wrong += 1
   if (l.wrong >= authConfig.maxWrongCodes) { l.lockUntil = Date.now() + authConfig.lockMinutes * 60e3; l.wrong = 0; save(phone, all, l); return { error: `Неверный код. Вход заблокирован на ${authConfig.lockMinutes} минут.` } }
@@ -135,15 +157,13 @@ export async function checkCode(phone, code) {
 // Есть ли аккаунт на этот номер: если да — сразу к выбору пункта выдачи, если нет — короткая анкета.
 // На сервере: GET /api/auth/account (после проверки кода). Демо — хранится в браузере.
 export async function findAccount(phone) {
-  if (authConfig.api) {
-    const r = await fetch(`${authConfig.api}/api/auth/account?phone=${digits(phone)}`, { credentials: 'include' })
-    return r.ok ? r.json() : null
-  }
+  if (authLiveNow()) return lastCheck?.phone === digits(phone) ? lastCheck.account : null // занятость нового номера проверит CRM (move)
   return read('hv-accounts', {})[digits(phone)] || null
 }
 export async function saveAccount(phone, acc) {
-  if (authConfig.api) {
-    await fetch(`${authConfig.api}/api/auth/account`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), ...acc }) })
+  if (authLiveNow()) {
+    if (!acc) return // старый номер CRM отвязала сама при смене
+    await post('account', { token: getSession()?.token, account: acc }).catch(() => null)
     return
   }
   const all = read('hv-accounts', {})
@@ -151,3 +171,12 @@ export async function saveAccount(phone, acc) {
   else delete all[digits(phone)] // null — номер отвязан от аккаунта (сменили телефон)
   write('hv-accounts', all)
 }
+
+// Какие боты подключены к номеру (по данным CRM). null — CRM недоступна или вход был в демо
+export async function messengerInfo() {
+  const s = getSession()
+  if (!(await authLive()) || !s) return null
+  const r = await post('me', { token: s.token }).catch(() => null)
+  return r?.ok ? { linked: r.body.linked || [], bots: r.body.bots || [] } : null
+}
+export const botLink = (b) => (b.type === 'telegram' ? `https://t.me/${b.username}` : `https://max.ru/${b.username}`)

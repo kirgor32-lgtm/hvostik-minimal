@@ -14,8 +14,8 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { cn } from '@/lib/utils'
 import { StoreProvider, useStore, rub, fmtPhone } from './store'
 import { RouterProvider, useRoute, Link } from './router'
-import { sendCode, checkCode, linkedChannels, setLinked, channelNames, findAccount, saveAccount, authConfig } from './auth'
-import { track, sendLead, crmEnabled } from './crm'
+import { sendCode, checkCode, linkedChannels, setLinked, channelNames, findAccount, saveAccount, authLive, authLiveNow, messengerInfo, botLink } from './auth'
+import { track, sendLead, crmEnabled, fetchOrderStatus } from './crm'
 import {
   BASE, contacts, seller, products, kinds, searchHints, benefits, stats, checks, posts, contactTopics, faq, pages,
   productPath, minPrice, img, declaration, manufacturer, minAll,
@@ -1327,6 +1327,8 @@ function AuthFlow() {
   const [sent, setSent] = useState(null) // { channel, demoCode }
   const [wait, setWait] = useState(0)
   const [demo, setDemo] = useState(['telegram']) // только демо: какие мессенджеры «есть» у номера
+  const [live, setLive] = useState(authLiveNow()) // CRM на связи: код шлёт бот или смс
+  useEffect(() => { authLive().then(setLive) }, [])
   const started = useRef(Date.now())
   useEffect(() => {
     if (!wait) return
@@ -1336,7 +1338,7 @@ function AuthFlow() {
   const today = new Date().toISOString().slice(0, 10)
   const request = async (via = '') => {
     setBusy(true)
-    const res = await sendCode(f.phone, { trap: f.trap, startedAt: started.current, via, demoLinked: authConfig.api ? null : [...new Set([...demo, ...linkedChannels(f.phone)])] })
+    const res = await sendCode(f.phone, { trap: f.trap, startedAt: started.current, via, demoLinked: live ? null : [...new Set([...demo, ...linkedChannels(f.phone)])] })
     setBusy(false)
     if (res.resendIn) setWait(res.resendIn)
     if (res.error) return setErr(res.error)
@@ -1377,7 +1379,7 @@ function AuthFlow() {
           <Input aria-label="Телефон" type="tel" autoComplete="tel" placeholder="Телефон" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: fmtPhone(e.target.value) })} className={inp} />
           {/* поле-ловушка для ботов: людям не видно */}
           <input type="text" name="company" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.trap} onChange={(e) => setF({ ...f, trap: e.target.value })} className="absolute -left-[9999px] h-px w-px opacity-0" />
-          {!authConfig.api && (
+          {!live && (
             <div className="rounded-[2px] border border-dashed border-gray-3 p-3 text-xs text-txt-2">
               <div className="mb-2">Демо — что есть у этого номера (на сайте с сервером это проверится само):</div>
               <div className="flex flex-wrap gap-1.5">
@@ -1395,7 +1397,7 @@ function AuthFlow() {
         <>
           <p className="text-[15px]">{sent?.channel === 'sms' && sent?.via !== 'sms' ? 'Telegram и Max у этого номера не нашли, поэтому код отправлен' : 'Код отправлен'} {where}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('phone'); setErr('') }}>Изменить номер</button></p>
           <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] bg-white text-center text-xl tracking-[.5em]" />
-          {sent?.demoCode && <p className="text-xs text-txt-2">Демо: сообщения пока не отправляются, ваш код — {sent.demoCode}</p>}
+          {sent?.demoCode && <p className="text-xs text-txt-2">Демо: смс пока не отправляются, ваш код — {sent.demoCode}</p>}
           <button type="button" disabled={wait > 0 || busy} onClick={() => request('sms')} className="block text-sm text-violet-dark underline disabled:text-txt-2 disabled:no-underline">
             {sent?.channel === 'sms' ? (wait > 0 ? `Отправить код повторно через ${wait} с` : 'Отправить код повторно') : `Не пришёл в ${channelNames[sent?.channel]}? Отправить по смс${wait > 0 ? ` через ${wait} с` : ''}`}
           </button>
@@ -1420,26 +1422,36 @@ function AuthFlow() {
   )
 }
 
-// Привязка мессенджеров: после привязки коды для входа приходят туда, а не по смс
+// Привязка мессенджеров: покупатель открывает нашего бота и делится номером — коды для входа приходят туда, а не по смс
 function LinkedMessengers() {
   const st = useStore()
+  const [info, setInfo] = useState(null) // данные CRM: какие боты есть и к каким привязан номер
   const [linked, setL] = useState(() => linkedChannels(st.user.phone))
+  useEffect(() => { messengerInfo().then(setInfo) }, [])
   const toggle = (c) => setL(setLinked(st.user.phone, c, !linked.includes(c)))
+  const btn = 'flex h-11 items-center justify-center gap-2 rounded-[2px] text-sm font-semibold transition-colors'
+  const mark = <span className="flex items-center gap-0.5 text-xs font-medium"><Check className="size-3.5" />подключён</span>
   return (
     <div className="rounded-[2px] border border-gray-2 p-4">
       <div className="font-semibold">Коды для входа</div>
-      <p className="mt-1 text-sm text-txt-2">Привяжите мессенджер — коды будут приходить туда, а не по смс.</p>
+      <p className="mt-1 text-sm text-txt-2">Откройте нашего бота и нажмите «Авторизоваться» — коды будут приходить туда, а не по смс.</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         {[['telegram', TgIcon], ['max', MaxIcon]].map(([c, I]) => {
-          const on = linked.includes(c)
+          if (info) {
+            const bot = info.bots.find((b) => b.type === c)
+            const on = info.linked.includes(c)
+            if (!bot) return <div key={c} className={cn(btn, 'bg-gray-1 text-txt-2')}><I className="size-6 opacity-50" />{channelNames[c]} скоро</div>
+            return <a key={c} href={botLink(bot)} target="_blank" rel="noreferrer" className={cn(btn, on ? 'bg-violet-soft text-violet-dark' : 'bg-gray-1 hover:bg-gray-2')}><I className="size-6" />{channelNames[c]}{on && mark}</a>
+          }
+          const on = linked.includes(c) // демо: без CRM привязка хранится в браузере
           return (
-            <button key={c} type="button" onClick={() => toggle(c)} aria-pressed={on}
-              className={cn('flex h-11 items-center justify-center gap-2 rounded-[2px] text-sm font-semibold transition-colors', on ? 'bg-violet-soft text-violet-dark' : 'bg-gray-1 hover:bg-gray-2')}>
-              <I className="size-6" />{channelNames[c]}{on && <span className="flex items-center gap-0.5 text-xs font-medium"><Check className="size-3.5" />подключён</span>}
+            <button key={c} type="button" onClick={() => toggle(c)} aria-pressed={on} className={cn(btn, on ? 'bg-violet-soft text-violet-dark' : 'bg-gray-1 hover:bg-gray-2')}>
+              <I className="size-6" />{channelNames[c]}{on && mark}
             </button>
           )
         })}
       </div>
+      {info && <button type="button" onClick={() => messengerInfo().then(setInfo)} className="mt-2 text-xs text-txt-2 underline hover:text-ink">Я поделился номером — обновить</button>}
     </div>
   )
 }
@@ -1470,7 +1482,7 @@ function EditProfile({ onClose }) {
     if (step === 'code') {
       if (f.code.length !== 4) return setErr('Введите 4 цифры')
       setBusy(true)
-      const r = await checkCode(f.phone, f.code)
+      const r = await checkCode(f.phone, f.code, { move: true })
       if (r.error) { setBusy(false); return setErr(r.error) }
       await finish(f.phone)
       return setBusy(false)
@@ -1481,7 +1493,7 @@ function EditProfile({ onClose }) {
     setBusy(true)
     if (same) { await finish(u.phone); return setBusy(false) }
     if (await findAccount(f.phone)) { setBusy(false); return setErr('Этот номер уже привязан к другому аккаунту') }
-    const r = await sendCode(f.phone, { startedAt: started.current, demoLinked: authConfig.api ? null : ['telegram'] }) // демо: как будто у номера есть Telegram
+    const r = await sendCode(f.phone, { startedAt: started.current, demoLinked: authLiveNow() ? null : ['telegram'] }) // демо: как будто у номера есть Telegram
     setBusy(false)
     if (r.error) return setErr(r.error)
     setErr(''); setSent(r); setStep('code')
@@ -1501,7 +1513,7 @@ function EditProfile({ onClose }) {
         <>
           <p className="text-[15px]">Код отправлен {sent?.channel === 'sms' ? `по смс на ${f.phone}` : `в ${channelNames[sent?.channel]}`}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('form'); setErr('') }}>Изменить номер</button></p>
           <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] bg-white text-center text-xl tracking-[.5em]" />
-          {sent?.demoCode && <p className="text-xs text-txt-2">Демо: сообщения пока не отправляются, ваш код — {sent.demoCode}</p>}
+          {sent?.demoCode && <p className="text-xs text-txt-2">Демо: смс пока не отправляются, ваш код — {sent.demoCode}</p>}
         </>
       )}
       {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
@@ -1510,11 +1522,30 @@ function EditProfile({ onClose }) {
   )
 }
 
+const ORDER_STATUS_BADGE = {
+  new: 'bg-violet-soft text-violet-dark',
+  confirmed: 'bg-sky-100 text-sky-700',
+  packed: 'bg-amber-100 text-amber-700',
+  shipped: 'bg-sky-100 text-sky-700',
+  delivered: 'bg-emerald-100 text-emerald-700',
+  cancelled: 'bg-rose-100 text-rose-700',
+}
+
 function Profile({ nav }) {
   const st = useStore()
   const [edit, setEdit] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [live, setLive] = useState({}) // { [orderNumber]: { status, status_label } }
   const bday = st.user.birth ? new Date(st.user.birth + 'T00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
+  useEffect(() => {
+    if (!crmEnabled) return
+    let cancelled = false
+    Promise.all(st.orders.map((o) => fetchOrderStatus(o.n, o.contact?.phone || st.user.phone).then((r) => [o.n, r]))).then((pairs) => {
+      if (cancelled) return
+      setLive((prev) => ({ ...prev, ...Object.fromEntries(pairs.filter(([, r]) => r)) }))
+    })
+    return () => { cancelled = true }
+  }, [st.orders.length, st.user.phone])
   return (
     <div className="space-y-5">
       {edit ? <EditProfile onClose={(ok) => { setEdit(false); setSaved(ok === true) }} /> : (
@@ -1537,14 +1568,16 @@ function Profile({ nav }) {
         <div className="mb-3 text-lg font-extrabold">Мои заказы</div>
         {!st.orders.length && <p className="text-sm text-txt-2">Заказов пока нет. <button className="text-violet-dark underline" onClick={() => { st.setPanel(null); nav.show({}) }}>Перейти в каталог</button></p>}
         <div className="space-y-2">
-          {st.orders.map((o) => (
+          {st.orders.map((o) => {
+            const l = live[o.n]
+            return (
             <div key={o.n} className="rounded-[2px] border border-gray-2 p-4">
-              <div className="flex items-center justify-between"><span className="flex items-center gap-2 font-semibold"><Package className="size-4" />Заказ №{o.n}</span><span className="rounded-full bg-violet-soft px-2 py-0.5 text-xs">Принят</span></div>
+              <div className="flex items-center justify-between"><span className="flex items-center gap-2 font-semibold"><Package className="size-4" />Заказ №{o.n}</span><span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', ORDER_STATUS_BADGE[l?.status] || 'bg-violet-soft text-violet-dark')}>{l?.status_label || 'Принят'}</span></div>
               <div className="mt-1 text-sm text-txt-2">{o.date} · {o.items.reduce((s, i) => s + i.qty, 0)} шт. · {rub(o.total)}</div>
               <div className="mt-2 text-xs text-txt-2">{o.items.map((i) => `${i.line} ${i.w} ×${i.qty}`).join(', ')}</div>
               {o.contact?.delivery && <div className="mt-1 text-xs text-txt-2">{o.contact.delivery}</div>}
             </div>
-          ))}
+          )})}
         </div>
       </div>
     </div>
