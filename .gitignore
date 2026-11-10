@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 dist-ssr
 logs/
+
+dist_root
