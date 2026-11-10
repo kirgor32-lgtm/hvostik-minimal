@@ -1,11 +1,16 @@
 // Вход в личный кабинет по коду: защита от ботов и выбор канала доставки кода.
 //
+// Куда уходит код — по приоритету: Telegram → Max → смс.
 // Как это будет работать с настоящим сервисом:
 // 1. Браузер получает токен Яндекс SmartCaptcha (невидимая проверка, российский сервис)
-//    и отправляет его на сервер вместе с номером: POST /api/auth/send-code { phone, captcha }.
-// 2. Сервер проверяет токен капчи, лимиты по номеру и IP, затем смотрит,
-//    привязан ли к номеру Telegram или Max. Если привязан — код уходит туда (бесплатно),
-//    если нет — по смс через подключённый смс-сервис.
+//    и отправляет его на сервер вместе с номером: POST /api/auth/send-code { phone, captcha, via? }.
+// 2. Сервер проверяет капчу и лимиты, затем ищет мессенджер:
+//    - Telegram: Telegram Gateway API, метод checkSendAbility — по одному номеру видно, есть ли
+//      у человека Telegram; если есть, код уходит официальным сообщением Telegram
+//      (sendVerificationMessage, ~$0.01 за доставленный код; если Telegram нет — проверка бесплатна).
+//    - Max: открытого способа «найти человека по номеру» у Max нет. Код можно отправить, только если
+//      покупатель один раз поделился контактом с нашим ботом в Max — тогда номер есть в нашей базе.
+//    - Ничего не нашли (или via: 'sms') — смс через подключённый смс-сервис.
 // 3. Ответ сервера: { channel: 'telegram' | 'max' | 'sms', resendIn: 60 }.
 // Пока сервера нет, всё ниже работает в демо-режиме прямо в браузере.
 // Важно: проверки в браузере — первый барьер, обойти их можно. Настоящие лимиты
@@ -81,7 +86,8 @@ async function captchaToken() {
 
 /* ---- отправка кода ---- */
 // trap — скрытое поле-ловушка (человек его не видит и не заполняет), startedAt — когда открыли форму
-export async function sendCode(phone, { trap = '', startedAt = 0 } = {}) {
+// via: 'sms' — покупатель сам попросил смс; demoLinked — в демо: какие мессенджеры «есть» у номера
+export async function sendCode(phone, { trap = '', startedAt = 0, via = '', demoLinked = null } = {}) {
   if (trap) return { error: 'Не удалось отправить код. Попробуйте ещё раз.' }
   if (Date.now() - startedAt < authConfig.minFillMs) return { error: 'Слишком быстро. Проверьте данные и нажмите ещё раз.' }
   const { all, l } = limits(phone)
@@ -95,14 +101,14 @@ export async function sendCode(phone, { trap = '', startedAt = 0 } = {}) {
   const captcha = await captchaToken()
   let res
   if (authConfig.api) {
-    const r = await fetch(`${authConfig.api}/api/auth/send-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), captcha }) })
+    const r = await fetch(`${authConfig.api}/api/auth/send-code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), captcha, via }) })
     res = await r.json()
     if (!r.ok) return { error: res.error || 'Не удалось отправить код' }
   } else {
     // демо: код генерируется в браузере и показывается на экране
     const code = String(Math.floor(1000 + Math.random() * 9000))
     sessionStorage.setItem('hv-demo-code', code)
-    res = { channel: pickChannel(linkedChannels(phone)), resendIn: authConfig.resendSeconds, demoCode: code }
+    res = { channel: via === 'sms' ? 'sms' : pickChannel(demoLinked ?? linkedChannels(phone)), resendIn: authConfig.resendSeconds, demoCode: code }
   }
   l.sends.push(now)
   save(phone, all, l)

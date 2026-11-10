@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { cn } from '@/lib/utils'
 import { StoreProvider, useStore, rub, fmtPhone } from './store'
 import { RouterProvider, useRoute, Link } from './router'
-import { sendCode, checkCode, linkedChannels, setLinked, channelNames, findAccount, saveAccount } from './auth'
+import { sendCode, checkCode, linkedChannels, setLinked, channelNames, findAccount, saveAccount, authConfig } from './auth'
 import { track, sendLead, crmEnabled } from './crm'
 import {
   BASE, contacts, seller, products, kinds, searchHints, benefits, stats, checks, posts, contactTopics, faq, pages,
@@ -1200,7 +1200,7 @@ function PromoBox() {
   return (
     <div className="mb-4">
       <div className="flex gap-2">
-        <Input value={code} onChange={(e) => { setCode(e.target.value); setMsg(null) }} placeholder="Промокод с листовки" className="h-11 rounded-[2px] bg-white text-[16px]" />
+        <Input value={code} onChange={(e) => { setCode(e.target.value); setMsg(null) }} placeholder="Промокод" aria-label="Промокод" className="h-11 rounded-[2px] bg-white text-[16px]" />
         <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { const r = await st.applyPromo(code); setMsg(r.ok ? { ok: true, text: 'Скидка применена!' } : { ok: false, text: r.msg }) } finally { setBusy(false) } }}
           className="h-11 shrink-0 rounded-[2px] bg-ink px-4 text-sm font-semibold text-white disabled:opacity-60">{busy ? 'Проверяю…' : 'Применить'}</button>
       </div>
@@ -1326,6 +1326,7 @@ function AuthFlow() {
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(null) // { channel, demoCode }
   const [wait, setWait] = useState(0)
+  const [demo, setDemo] = useState(['telegram']) // только демо: какие мессенджеры «есть» у номера
   const started = useRef(Date.now())
   useEffect(() => {
     if (!wait) return
@@ -1333,13 +1334,13 @@ function AuthFlow() {
     return () => clearTimeout(t)
   }, [wait])
   const today = new Date().toISOString().slice(0, 10)
-  const request = async () => {
+  const request = async (via = '') => {
     setBusy(true)
-    const res = await sendCode(f.phone, { trap: f.trap, startedAt: started.current })
+    const res = await sendCode(f.phone, { trap: f.trap, startedAt: started.current, via, demoLinked: authConfig.api ? null : [...new Set([...demo, ...linkedChannels(f.phone)])] })
     setBusy(false)
     if (res.resendIn) setWait(res.resendIn)
     if (res.error) return setErr(res.error)
-    setErr(''); setSent(res); setF((x) => ({ ...x, code: '' })); setStep('code')
+    setErr(''); setSent({ ...res, via }); setF((x) => ({ ...x, code: '' })); setStep('code')
   }
   const next = async (e) => {
     e.preventDefault()
@@ -1367,7 +1368,7 @@ function AuthFlow() {
     setBusy(false)
     st.setUser({ ...acc, phone: f.phone })
   }
-  const where = sent?.channel === 'sms' ? `по смс на ${f.phone}` : `в ${channelNames[sent?.channel]} — аккаунт, привязанный к ${f.phone}`
+  const where = sent?.channel === 'sms' ? `по смс на ${f.phone}` : `в ${channelNames[sent?.channel]} — на аккаунт с номером ${f.phone}`
   const inp = 'h-12 rounded-[2px] bg-white text-[16px]'
   return (
     <form onSubmit={next} noValidate className="space-y-3">
@@ -1376,16 +1377,27 @@ function AuthFlow() {
           <Input aria-label="Телефон" type="tel" autoComplete="tel" placeholder="Телефон" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: fmtPhone(e.target.value) })} className={inp} />
           {/* поле-ловушка для ботов: людям не видно */}
           <input type="text" name="company" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.trap} onChange={(e) => setF({ ...f, trap: e.target.value })} className="absolute -left-[9999px] h-px w-px opacity-0" />
+          {!authConfig.api && (
+            <div className="rounded-[2px] border border-dashed border-gray-3 p-3 text-xs text-txt-2">
+              <div className="mb-2">Демо — что есть у этого номера (на сайте с сервером это проверится само):</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[['Telegram', ['telegram']], ['Max', ['max']], ['Оба', ['telegram', 'max']], ['Ничего', []]].map(([l, v]) => (
+                  <button key={l} type="button" onClick={() => setDemo(v)} aria-pressed={demo.join() === v.join()}
+                    className={cn('rounded-full px-3 py-1 font-semibold', demo.join() === v.join() ? 'bg-ink text-white' : 'bg-white text-ink ring-1 ring-gray-2')}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <Consent checked={f.ok} onChange={(ok) => setF({ ...f, ok })} />
         </>
       )}
       {step === 'code' && (
         <>
-          <p className="text-[15px]">Код отправлен {where}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('phone'); setErr('') }}>Изменить номер</button></p>
+          <p className="text-[15px]">{sent?.channel === 'sms' && sent?.via !== 'sms' ? 'Telegram и Max у этого номера не нашли, поэтому код отправлен' : 'Код отправлен'} {where}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('phone'); setErr('') }}>Изменить номер</button></p>
           <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] bg-white text-center text-xl tracking-[.5em]" />
           {sent?.demoCode && <p className="text-xs text-txt-2">Демо: сообщения пока не отправляются, ваш код — {sent.demoCode}</p>}
-          <button type="button" disabled={wait > 0 || busy} onClick={request} className="text-sm text-violet-dark underline disabled:text-txt-2 disabled:no-underline">
-            {wait > 0 ? `Отправить код повторно через ${wait} с` : 'Отправить код повторно'}
+          <button type="button" disabled={wait > 0 || busy} onClick={() => request('sms')} className="block text-sm text-violet-dark underline disabled:text-txt-2 disabled:no-underline">
+            {sent?.channel === 'sms' ? (wait > 0 ? `Отправить код повторно через ${wait} с` : 'Отправить код повторно') : `Не пришёл в ${channelNames[sent?.channel]}? Отправить по смс${wait > 0 ? ` через ${wait} с` : ''}`}
           </button>
         </>
       )}
@@ -1469,7 +1481,7 @@ function EditProfile({ onClose }) {
     setBusy(true)
     if (same) { await finish(u.phone); return setBusy(false) }
     if (await findAccount(f.phone)) { setBusy(false); return setErr('Этот номер уже привязан к другому аккаунту') }
-    const r = await sendCode(f.phone, { startedAt: started.current })
+    const r = await sendCode(f.phone, { startedAt: started.current, demoLinked: authConfig.api ? null : ['telegram'] }) // демо: как будто у номера есть Telegram
     setBusy(false)
     if (r.error) return setErr(r.error)
     setErr(''); setSent(r); setStep('code')
