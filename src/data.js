@@ -6,6 +6,7 @@
 export const BASE = import.meta.env.BASE_URL // '/hvostik-minimal/'
 export const SITE = 'https://kirgor32-lgtm.github.io/hvostik-minimal' // без слэша в конце
 export const img = (name) => `${BASE}img/p/${name}.webp`
+import generatedPrices from './prices.generated.json'
 
 // ⚠️ ЗАГЛУШКИ — заменить перед запуском (поиск: «ЗАГЛУШКА»)
 export const contacts = {
@@ -122,6 +123,16 @@ export const products = [
     more: 'Щенкам нужно больше белка и энергии для роста. Кормите чаще и небольшими порциями: до 6 месяцев — 3–4 раза в день, потом 2 раза.',
   },
 ]
+
+// Цена, фасовки и категория (кошки/собаки) приходят из CRM (вкладка «Товары») — см.
+// scripts/fetch-crm-prices.mjs, запускается перед сборкой. Остальные поля (текст, состав
+// и т.п.) остаются здесь. Если в CRM товара нет — используются значения выше как есть.
+for (const p of products) {
+  const g = generatedPrices[p.id]
+  if (!g) continue
+  if (g.weights?.length) p.weights = g.weights
+  if (g.pet_type) p.kind = g.pet_type
+}
 
 const fmt = (n) => n.toLocaleString('ru-RU').replace(/\u202f| /g, '\u00a0')
 const from = (kind) => fmt(Math.min(...products.filter((p) => p.kind === kind).flatMap((p) => p.weights.map((w) => w.price))))
