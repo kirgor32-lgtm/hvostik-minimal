@@ -491,7 +491,7 @@ function Checks() {
         <SectionTitle>Как проверяют корм</SectionTitle>
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {checks.map((c) => (
-            <div key={c.n} className="rounded-[2px] bg-white p-6">
+            <div key={c.n} className="rounded-[2px] bg-gray-1 p-6">
               <div className="contour text-[52px]">{c.n}</div>
               <h3 className="mt-4 text-lg font-bold">{c.title}</h3>
               <p className="mt-1 text-[15px] text-txt-2">{c.text}</p>
@@ -505,7 +505,7 @@ function Checks() {
 
 function PostCard({ p, H = 'h3' }) {
   return (
-    <Link to={`blog/${p.slug}/`} className="group flex min-w-[260px] flex-col overflow-hidden rounded-[2px] border border-gray-2 bg-white text-left transition hover:shadow-card">
+    <Link to={`blog/${p.slug}/`} className="group flex min-w-[260px] flex-col overflow-hidden lg:min-w-0 rounded-[2px] border border-gray-2 bg-white text-left transition hover:shadow-card">
       <div className={cn('flex h-[150px] items-end justify-center overflow-hidden', p.tone)}>
         <img src={img(p.img)} {...IMG} loading="lazy" alt="" className="h-[130px] w-auto translate-y-3 transition group-hover:translate-y-0" />
       </div>
@@ -621,7 +621,7 @@ function Contacts({ topic, setTopic, as = 'h2', title = 'Связаться с �
           <div className="grid">
           {contactTopics.map((t) => (
             <TabsContent key={t.id} value={t.id} forceMount inert={t.id !== topic} className={cn('[grid-area:1/1] mt-0', t.id !== topic && 'invisible')}>
-              <div className="grid gap-8 rounded-[2px] bg-white/60 p-6 md:grid-cols-[1fr_1.3fr] md:p-10">
+              <div className="grid gap-8 md:grid-cols-[1fr_1.3fr] md:gap-10">
                 <div>
                   <h3 className="text-2xl font-extrabold">{cap(t.label)}</h3>
                   <p className="mt-3 text-[17px] leading-relaxed text-txt-2">{t.text}</p>
