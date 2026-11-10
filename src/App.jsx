@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { cn } from '@/lib/utils'
 import { StoreProvider, useStore, rub, fmtPhone } from './store'
 import { RouterProvider, useRoute, Link } from './router'
-import { sendCode, checkCode, linkedChannels, setLinked, channelNames } from './auth'
+import { sendCode, checkCode, linkedChannels, setLinked, channelNames, findAccount, saveAccount } from './auth'
 import { track, sendLead, crmEnabled } from './crm'
 import {
   BASE, contacts, seller, products, kinds, searchHints, benefits, stats, checks, posts, contactTopics, faq, pages,
@@ -1080,6 +1080,7 @@ function Panels({ nav }) {
           {!!st.items.length && (
             <div className="border-t border-gray-2 p-5">
               <div className="mb-3 flex items-center gap-2 rounded-[2px] bg-violet-soft px-3 py-2 text-sm"><Truck className="size-4 text-violet-dark" />Бесплатная доставка до пункта 5Post</div>
+              <PromoBox />
               <div className="mb-4 space-y-1 text-lg">
                 {st.discount > 0 && <div className="flex justify-between text-sm text-txt-2"><span>Скидка по промокоду {st.promo.code}</span><span>−{rub(st.discount)}</span></div>}
                 <div className="flex justify-between"><span>Итого</span><b>{rub(st.discount ? st.totalWithDiscount : st.total)}</b></div>
@@ -1176,13 +1177,7 @@ function Panels({ nav }) {
 
       <Dialog open={st.checkout} onOpenChange={st.setCheckout}>
         <DialogContent className="max-w-[520px] rounded-[2px] bg-gray-1 p-7">
-          <DialogTitle className="text-2xl font-extrabold">Оформление заказа</DialogTitle>
-          <DialogDescription className="text-[15px] text-txt-2">
-            {st.total ? (st.discount ? `Сумма ${rub(st.totalWithDiscount)} (со скидкой ${rub(st.discount)}). ` : `Сумма ${rub(st.total)}. `) : ''}
-            Оставьте контакты — перезвоним и поможем выбрать пункт выдачи 5Post. Доставка бесплатная.
-          </DialogDescription>
-          <PromoBox />
-          <LeadForm compact cta="Подтвердить заказ" doneText="Заказ сохранён в личном кабинете, менеджер перезвонит." onSubmit={(c) => st.placeOrder(c)} />
+          <Checkout />
         </DialogContent>
       </Dialog>
     </>
@@ -1229,10 +1224,89 @@ function Empty({ icon: I, text, action }) {
   )
 }
 
-function Login() {
+// Оформление как у крупных зоомагазинов: вход по коду → (новый покупатель — короткая анкета) → пункт выдачи
+function Checkout() {
   const st = useStore()
-  const [f, setF] = useState({ name: '', phone: '', code: '', ok: false, trap: '' })
-  const [step, setStep] = useState('phone')
+  const [done, setDone] = useState(null) // оформленный заказ
+  const [point, setPoint] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const sending = useRef(false) // защита от двойного нажатия
+  const step = done ? 'done' : !st.user ? 'auth' : 'point'
+  const fullName = st.user ? [st.user.name, st.user.surname].filter(Boolean).join(' ') : ''
+  const submit = (e) => {
+    e.preventDefault()
+    if (sending.current) return
+    if (point.trim().length < 5) return setErr('Укажите адрес пункта выдачи')
+    sending.current = true
+    setBusy(true)
+    setTimeout(() => {
+      const o = st.placeOrder({ name: fullName, phone: st.user.phone, delivery: `5Post: ${point.trim()}` })
+      setDone(o); setBusy(false); sending.current = false
+    }, 500)
+  }
+  const sum = st.discount ? `${rub(st.totalWithDiscount)} (со скидкой ${rub(st.discount)})` : rub(st.total)
+  if (step === 'done')
+    return (
+      <>
+        <DialogTitle className="sr-only">Заказ оформлен</DialogTitle>
+        <DialogDescription className="sr-only">Заказ №{done.n} принят</DialogDescription>
+        <div className="rounded-[2px] bg-white p-8 text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-violet-dark text-white"><Check className="size-7" /></div>
+          <h3 className="mt-4 text-2xl font-extrabold">Спасибо, {st.user?.name}!</h3>
+          <p className="mt-2 text-txt-2">Заказ №{done.n} принят и сохранён в личном кабинете. Когда он приедет в пункт выдачи, придёт смс с кодом для получения.{crmEnabled ? '' : ' Это демо — заказ никуда не ушёл.'}</p>
+          <Button onClick={() => { st.setCheckout(false); setDone(null) }} className={cn(inkBtn, 'mt-5 h-11 px-8')}>Хорошо</Button>
+        </div>
+      </>
+    )
+  if (step === 'auth')
+    return (
+      <>
+        <DialogTitle className="text-2xl font-extrabold">Войдите или зарегистрируйтесь</DialogTitle>
+        <DialogDescription className="text-[15px] text-txt-2">Сумма заказа {sum}. Введите номер телефона — пришлём код для входа.</DialogDescription>
+        <AuthFlow />
+      </>
+    )
+  return (
+    <>
+      <DialogTitle className="text-2xl font-extrabold">Пункт выдачи</DialogTitle>
+      <DialogDescription className="text-[15px] text-txt-2">{st.count} шт. на {sum}. Доставка до пункта 5Post бесплатная.</DialogDescription>
+      {!st.items.length ? (
+        <Empty icon={ShoppingBag} text="Корзина пуста" action={['В каталог', () => st.setCheckout(false)]} />
+      ) : (
+        <form onSubmit={submit} noValidate className="space-y-3">
+          <div className="flex items-center justify-between gap-2 rounded-[2px] bg-white px-4 py-3 text-sm">
+            <span className="min-w-0"><b>{fullName}</b> · <span className="whitespace-nowrap">{st.user.phone}</span></span>
+            <button type="button" onClick={() => st.setUser(null)} className="shrink-0 text-txt-2 underline hover:text-ink">Не вы?</button>
+          </div>
+          {/* сюда встанет карта-виджет 5Post (fivepost.ru/widget), когда будет ключ партнёра; пока — адрес текстом */}
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold">Адрес пункта 5Post</span>
+            <Input value={point} onChange={(e) => { setPoint(e.target.value); setErr('') }} placeholder="Улица, дом — «Пятёрочка», «Перекрёсток» или постамат" maxLength={200} className="h-12 rounded-[2px] bg-white text-[16px]" />
+          </label>
+          <p className="text-xs text-txt-2">Не знаете точный адрес — напишите улицу или район, подберём ближайший пункт и перезвоним.</p>
+          {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
+          <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 w-full text-base')}>{busy ? <Loader2 className="size-5 animate-spin" /> : 'Подтвердить заказ'}</Button>
+        </form>
+      )}
+    </>
+  )
+}
+
+function Login() {
+  return (
+    <>
+      <div className="mb-3 rounded-[2px] bg-violet-soft p-4 text-sm">Войдите, чтобы видеть свои заказы и избранное. Если к номеру привязан Telegram или Max, код придёт туда.</div>
+      <AuthFlow />
+    </>
+  )
+}
+
+// Вход по номеру: телефон → код → если покупатель новый, анкета (имя, фамилия по желанию, дата рождения)
+function AuthFlow() {
+  const st = useStore()
+  const [f, setF] = useState({ phone: '', code: '', ok: false, trap: '', name: '', surname: '', birth: '' })
+  const [step, setStep] = useState('phone') // phone | code | profile
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(null) // { channel, demoCode }
@@ -1243,6 +1317,7 @@ function Login() {
     const t = setTimeout(() => setWait(wait - 1), 1000)
     return () => clearTimeout(t)
   }, [wait])
+  const today = new Date().toISOString().slice(0, 10)
   const request = async () => {
     setBusy(true)
     const res = await sendCode(f.phone, { trap: f.trap, startedAt: started.current })
@@ -1255,42 +1330,65 @@ function Login() {
     e.preventDefault()
     if (busy) return
     if (step === 'phone') {
-      if (f.name.trim().length < 2) return setErr('Введите имя')
       if (f.phone.replace(/\D/g, '').length !== 11) return setErr('Введите телефон полностью')
       if (!f.ok) return setErr('Нужно согласие на обработку данных')
       return request()
     }
-    if (f.code.length !== 4) return setErr('Введите 4 цифры')
+    if (step === 'code') {
+      if (f.code.length !== 4) return setErr('Введите 4 цифры')
+      setBusy(true)
+      const res = await checkCode(f.phone, f.code)
+      if (res.error) { setBusy(false); return setErr(res.error) }
+      const acc = await findAccount(f.phone) // есть ли учётная запись на этот номер
+      setBusy(false); setErr('')
+      if (acc) return st.setUser({ ...acc, phone: f.phone })
+      return setStep('profile')
+    }
+    if (f.name.trim().length < 2) return setErr('Введите имя')
+    if (!f.birth || f.birth > today || f.birth < '1900-01-01') return setErr('Укажите дату рождения')
+    const acc = { name: f.name.trim(), surname: f.surname.trim(), birth: f.birth }
     setBusy(true)
-    const res = await checkCode(f.phone, f.code)
+    await saveAccount(f.phone, acc)
     setBusy(false)
-    if (res.error) return setErr(res.error)
-    st.setUser({ name: f.name.trim(), phone: f.phone })
+    st.setUser({ ...acc, phone: f.phone })
   }
   const where = sent?.channel === 'sms' ? `по смс на ${f.phone}` : `в ${channelNames[sent?.channel]} — аккаунт, привязанный к ${f.phone}`
+  const inp = 'h-12 rounded-[2px] bg-white text-[16px]'
   return (
     <form onSubmit={next} noValidate className="space-y-3">
-      <div className="mb-2 rounded-[2px] bg-violet-soft p-4 text-sm">Войдите, чтобы видеть свои заказы и избранное. Если к номеру привязан Telegram или Max, код придёт туда.</div>
-      {step === 'phone' ? (
+      {step === 'phone' && (
         <>
-          <Input aria-label="Имя" autoComplete="name" placeholder="Имя" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className="h-12 rounded-[2px] text-[16px]" />
-          <Input aria-label="Телефон" type="tel" autoComplete="tel" placeholder="Телефон" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: fmtPhone(e.target.value) })} className="h-12 rounded-[2px] text-[16px]" />
+          <Input aria-label="Телефон" type="tel" autoComplete="tel" placeholder="Телефон" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: fmtPhone(e.target.value) })} className={inp} />
           {/* поле-ловушка для ботов: людям не видно */}
           <input type="text" name="company" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.trap} onChange={(e) => setF({ ...f, trap: e.target.value })} className="absolute -left-[9999px] h-px w-px opacity-0" />
           <Consent checked={f.ok} onChange={(ok) => setF({ ...f, ok })} />
         </>
-      ) : (
+      )}
+      {step === 'code' && (
         <>
           <p className="text-[15px]">Код отправлен {where}. <button type="button" className="text-violet-dark underline" onClick={() => { setStep('phone'); setErr('') }}>Изменить номер</button></p>
-          <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] text-center text-xl tracking-[.5em]" />
+          <Input aria-label="Код" autoFocus placeholder="Код" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.replace(/\D/g, '') })} className="h-12 rounded-[2px] bg-white text-center text-xl tracking-[.5em]" />
           {sent?.demoCode && <p className="text-xs text-txt-2">Демо: сообщения пока не отправляются, ваш код — {sent.demoCode}</p>}
           <button type="button" disabled={wait > 0 || busy} onClick={request} className="text-sm text-violet-dark underline disabled:text-txt-2 disabled:no-underline">
             {wait > 0 ? `Отправить код повторно через ${wait} с` : 'Отправить код повторно'}
           </button>
         </>
       )}
+      {step === 'profile' && (
+        <>
+          <p className="text-[15px]">Номер {f.phone} у нас впервые. Расскажите немного о себе — это займёт полминуты.</p>
+          <Input aria-label="Имя" autoFocus autoComplete="given-name" placeholder="Имя" maxLength={60} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={inp} />
+          <Input aria-label="Фамилия (необязательно)" autoComplete="family-name" placeholder="Фамилия (необязательно)" maxLength={60} value={f.surname} onChange={(e) => setF({ ...f, surname: e.target.value })} className={inp} />
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold">Дата рождения</span>
+            <Input type="date" autoComplete="bday" min="1900-01-01" max={today} value={f.birth} onChange={(e) => setF({ ...f, birth: e.target.value })} className={inp} />
+          </label>
+        </>
+      )}
       {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
-      <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 w-full text-base')}>{busy ? <Loader2 className="size-5 animate-spin" /> : step === 'phone' ? 'Получить код' : 'Войти'}</Button>
+      <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 w-full text-base')}>
+        {busy ? <Loader2 className="size-5 animate-spin" /> : step === 'phone' ? 'Получить код' : step === 'code' ? 'Продолжить' : 'Сохранить и продолжить'}
+      </Button>
     </form>
   )
 }
@@ -1325,7 +1423,7 @@ function Profile({ nav }) {
     <div className="space-y-5">
       <div className="flex items-center gap-3 rounded-[2px] bg-gray-1 p-4">
         <span className="flex size-12 items-center justify-center rounded-full bg-violet-dark text-lg font-bold text-white">{st.user.name[0]?.toUpperCase()}</span>
-        <div className="min-w-0 flex-1"><div className="font-bold">{st.user.name}</div><div className="whitespace-nowrap text-sm text-txt-2">{st.user.phone}</div></div>
+        <div className="min-w-0 flex-1"><div className="font-bold">{[st.user.name, st.user.surname].filter(Boolean).join(' ')}</div><div className="whitespace-nowrap text-sm text-txt-2">{st.user.phone}</div></div>
         <button onClick={() => st.setUser(null)} className="flex items-center gap-1 text-sm text-txt-2 hover:text-ink"><LogOut className="size-4" />Выйти</button>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -1342,6 +1440,7 @@ function Profile({ nav }) {
               <div className="flex items-center justify-between"><span className="flex items-center gap-2 font-semibold"><Package className="size-4" />Заказ №{o.n}</span><span className="rounded-full bg-violet-soft px-2 py-0.5 text-xs">Принят</span></div>
               <div className="mt-1 text-sm text-txt-2">{o.date} · {o.items.reduce((s, i) => s + i.qty, 0)} шт. · {rub(o.total)}</div>
               <div className="mt-2 text-xs text-txt-2">{o.items.map((i) => `${i.line} ${i.w} ×${i.qty}`).join(', ')}</div>
+              {o.contact?.delivery && <div className="mt-1 text-xs text-txt-2">{o.contact.delivery}</div>}
             </div>
           ))}
         </div>

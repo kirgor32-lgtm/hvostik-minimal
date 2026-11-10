@@ -124,3 +124,23 @@ export async function checkCode(phone, code) {
   save(phone, all, l)
   return { error: `Неверный код. Осталось попыток: ${authConfig.maxWrongCodes - l.wrong}` }
 }
+
+/* ---- учётные записи покупателей ---- */
+// Есть ли аккаунт на этот номер: если да — сразу к выбору пункта выдачи, если нет — короткая анкета.
+// На сервере: GET /api/auth/account (после проверки кода). Демо — хранится в браузере.
+export async function findAccount(phone) {
+  if (authConfig.api) {
+    const r = await fetch(`${authConfig.api}/api/auth/account?phone=${digits(phone)}`, { credentials: 'include' })
+    return r.ok ? r.json() : null
+  }
+  return read('hv-accounts', {})[digits(phone)] || null
+}
+export async function saveAccount(phone, acc) {
+  if (authConfig.api) {
+    await fetch(`${authConfig.api}/api/auth/account`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: digits(phone), ...acc }) })
+    return
+  }
+  const all = read('hv-accounts', {})
+  all[digits(phone)] = acc
+  write('hv-accounts', all)
+}
