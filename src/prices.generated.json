@@ -1,14 +1,4 @@
 {
- "": {
-  "pet_type": "",
-  "weights": [
-   {
-    "w": "",
-    "price": 0,
-    "gtin": ""
-   }
-  ]
- },
  "myau-turkey": {
   "pet_type": "cat",
   "weights": [
