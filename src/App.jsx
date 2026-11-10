@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment, lazy, Suspense } from 'react'
+const PickupPicker = lazy(() => import('./PickupPicker'))
 import {
   Search, ShoppingBag, Heart, User, Menu, X, Minus, Plus, ChevronRight, Phone, Clock, LogOut, Package,
   Drumstick, Scale, HeartPulse, ShieldCheck, Factory, BadgeCheck, Check, Trash2, Loader2, Send, Truck, Sparkles, PawPrint, Cookie,
@@ -1176,9 +1177,7 @@ function Panels({ nav }) {
       </Sheet>
 
       <Dialog open={st.checkout} onOpenChange={st.setCheckout}>
-        <DialogContent className="max-w-[520px] rounded-[2px] bg-gray-1 p-7">
-          <Checkout />
-        </DialogContent>
+        <Checkout />
       </Dialog>
     </>
   )
@@ -1228,7 +1227,9 @@ function Empty({ icon: I, text, action }) {
 function Checkout() {
   const st = useStore()
   const [done, setDone] = useState(null) // оформленный заказ
-  const [point, setPoint] = useState('')
+  const [point, setPoint] = useState('') // адрес текстом, если не нашли пункт на карте
+  const [pt, setPt] = useState(null) // пункт, выбранный на карте
+  const [manual, setManual] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const sending = useRef(false) // защита от двойного нажатия
@@ -1237,17 +1238,19 @@ function Checkout() {
   const submit = (e) => {
     e.preventDefault()
     if (sending.current) return
-    if (point.trim().length < 5) return setErr('Укажите адрес пункта выдачи')
+    const where = manual ? point.trim() : pt ? `${pt.b === 'p' ? 'Пятёрочка' : 'Перекрёсток'}, ${pt.a}` : ''
+    if (where.length < 5) return setErr(manual ? 'Укажите адрес пункта выдачи' : 'Выберите пункт на карте или в списке')
     sending.current = true
     setBusy(true)
     setTimeout(() => {
-      const o = st.placeOrder({ name: fullName, phone: st.user.phone, delivery: `5Post: ${point.trim()}` })
+      const o = st.placeOrder({ name: fullName, phone: st.user.phone, delivery: `5Post: ${where}` })
       setDone(o); setBusy(false); sending.current = false
     }, 500)
   }
+  const box = (wide, kids) => <DialogContent className={cn('max-h-[94dvh] overflow-y-auto rounded-[2px] bg-gray-1', wide ? 'max-w-[960px] p-5 sm:max-w-[960px] sm:p-7' : 'max-w-[520px] p-7')}>{kids}</DialogContent>
   const sum = st.discount ? `${rub(st.totalWithDiscount)} (со скидкой ${rub(st.discount)})` : rub(st.total)
   if (step === 'done')
-    return (
+    return box(false,
       <>
         <DialogTitle className="sr-only">Заказ оформлен</DialogTitle>
         <DialogDescription className="sr-only">Заказ №{done.n} принят</DialogDescription>
@@ -1260,33 +1263,45 @@ function Checkout() {
       </>
     )
   if (step === 'auth')
-    return (
+    return box(false,
       <>
         <DialogTitle className="text-2xl font-extrabold">Войдите или зарегистрируйтесь</DialogTitle>
         <DialogDescription className="text-[15px] text-txt-2">Сумма заказа {sum}. Введите номер телефона — пришлём код для входа.</DialogDescription>
         <AuthFlow />
       </>
     )
-  return (
+  return box(!!st.items.length,
     <>
-      <DialogTitle className="text-2xl font-extrabold">Пункт выдачи</DialogTitle>
+      <DialogTitle className="text-2xl font-extrabold">Где заберёте заказ?</DialogTitle>
       <DialogDescription className="text-[15px] text-txt-2">{st.count} шт. на {sum}. Доставка до пункта 5Post бесплатная.</DialogDescription>
       {!st.items.length ? (
         <Empty icon={ShoppingBag} text="Корзина пуста" action={['В каталог', () => st.setCheckout(false)]} />
       ) : (
         <form onSubmit={submit} noValidate className="space-y-3">
-          <div className="flex items-center justify-between gap-2 rounded-[2px] bg-white px-4 py-3 text-sm">
-            <span className="min-w-0"><b>{fullName}</b> · <span className="whitespace-nowrap">{st.user.phone}</span></span>
-            <button type="button" onClick={() => st.setUser(null)} className="shrink-0 text-txt-2 underline hover:text-ink">Не вы?</button>
+          {manual ? (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold">Адрес пункта 5Post</span>
+              <Input value={point} onChange={(e) => { setPoint(e.target.value); setErr('') }} placeholder="Улица, дом — «Пятёрочка», «Перекрёсток» или постамат" maxLength={200} className="h-12 rounded-[2px] bg-white text-[16px]" />
+              <span className="mt-1.5 block text-xs text-txt-2">Не знаете точный адрес — напишите улицу или район, подберём ближайший пункт и перезвоним.</span>
+            </label>
+          ) : (
+            <>
+              <Suspense fallback={<div className="flex h-[260px] items-center justify-center"><Loader2 className="size-6 animate-spin text-txt-2" /></div>}>
+                <PickupPicker value={pt} onChange={(p) => { setPt(p); setErr('') }} />
+              </Suspense>
+              {/* ДЕМО-пометка: точки — магазины из OpenStreetMap, а не настоящий список 5Post */}
+              <p className="text-xs text-txt-2">Демо: на карте магазины «Пятёрочка» и «Перекрёсток» из открытой карты OpenStreetMap, не в каждом из них есть пункт 5Post.</p>
+            </>
+          )}
+          <button type="button" onClick={() => { setManual(!manual); setErr('') }} className="text-sm text-violet-dark underline">{manual ? 'Выбрать на карте' : 'Нет нужного пункта? Напишите адрес'}</button>
+          <div className="flex flex-col gap-3 rounded-[2px] bg-white p-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1 text-sm">
+              {!manual && (pt ? <div className="font-semibold">{pt.b === 'p' ? 'Пятёрочка' : 'Перекрёсток'}, {pt.a}</div> : <div className="text-txt-2">Пункт не выбран</div>)}
+              <div className="text-txt-2"><span className="text-ink">{fullName}</span> · <span className="whitespace-nowrap">{st.user.phone}</span> · <button type="button" onClick={() => st.setUser(null)} className="underline hover:text-ink">Не вы?</button></div>
+            </div>
+            <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 shrink-0 px-8 text-base')}>{busy ? <Loader2 className="size-5 animate-spin" /> : 'Подтвердить заказ'}</Button>
           </div>
-          {/* сюда встанет карта-виджет 5Post (fivepost.ru/widget), когда будет ключ партнёра; пока — адрес текстом */}
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold">Адрес пункта 5Post</span>
-            <Input value={point} onChange={(e) => { setPoint(e.target.value); setErr('') }} placeholder="Улица, дом — «Пятёрочка», «Перекрёсток» или постамат" maxLength={200} className="h-12 rounded-[2px] bg-white text-[16px]" />
-          </label>
-          <p className="text-xs text-txt-2">Не знаете точный адрес — напишите улицу или район, подберём ближайший пункт и перезвоним.</p>
           {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
-          <Button type="submit" disabled={busy} className={cn(inkBtn, 'h-12 w-full text-base')}>{busy ? <Loader2 className="size-5 animate-spin" /> : 'Подтвердить заказ'}</Button>
         </form>
       )}
     </>
