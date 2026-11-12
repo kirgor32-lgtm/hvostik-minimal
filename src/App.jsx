@@ -354,7 +354,7 @@ function Catalog({ filter, setFilter, title, fixedKind, as }) {
   const ages = [['all', 'Любой возраст'], ['adult', 'Взрослым'], ...(kind !== 'dog' ? [['kitten', 'Котятам']] : []), ...(kind !== 'cat' ? [['puppy', 'Щенкам']] : [])]
   const setKind = (v) => setFilter((f) => ({ ...f, kind: v, age: (v === 'cat' && f.age === 'puppy') || (v === 'dog' && f.age === 'kitten') ? 'all' : f.age }))
   return (
-    <section id="catalog" className="scroll-mt-44 bg-gray-1 py-14">
+    <section id="catalog" className="scroll-mt-44 py-14">
       <div className="wrap">
         {title && <SectionTitle as={as}>{title}</SectionTitle>}
         <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -608,7 +608,7 @@ function Field({ err, label, children }) {
 
 function Contacts({ topic, setTopic, as = 'h2', title = 'Связаться с нами' }) {
   return (
-    <section id="form" className="scroll-mt-44 bg-gray-1 py-16">
+    <section id="form" className="scroll-mt-44 py-16">
       <div className="wrap">
         <SectionTitle as={as}>{title}</SectionTitle>
         <Tabs value={topic} onValueChange={setTopic} className="mt-6 gap-6">
