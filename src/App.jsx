@@ -486,7 +486,7 @@ function Mission() {
 
 function Checks() {
   return (
-    <section className="bg-gray-1 py-16">
+    <section className="py-16">
       <div className="wrap">
         <SectionTitle>Как проверяют корм</SectionTitle>
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -783,7 +783,7 @@ function ProductPage({ p }) {
           )}
         </div>
       </article>
-      <section className="bg-gray-1 py-14">
+      <section className="py-14">
         <div className="wrap">
           <h2 className="text-[26px] font-extrabold md:text-[32px]">Другие корма {p.line}</h2>
           <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">{related.map((x) => <ProductCard key={x.id} p={x} />)}</div>
@@ -817,7 +817,7 @@ function PostPage({ post }) {
         <p className="mt-4 text-lg text-txt-2">{post.text}</p>
         <div className="mt-6 space-y-4 text-[17px] leading-relaxed">{post.body.map((t) => <p key={t}>{t}</p>)}</div>
       </article>
-      <section className="bg-gray-1 py-14">
+      <section className="py-14">
         <div className="wrap">
           <h2 className="text-2xl font-extrabold">Корма по теме</h2>
           <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">{rel.map((x) => <ProductCard key={x.id} p={x} />)}</div>
